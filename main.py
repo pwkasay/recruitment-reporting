@@ -6,7 +6,7 @@ import logging
 import os
 import time
 import uuid
-from collections import Counter
+import datetime
 
 import azure.functions as func
 import olefile
