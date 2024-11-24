@@ -483,6 +483,7 @@ def process(created_after_date):
     try:
         service = authenticate_google_sheets()
         write_to_google_sheet(service, validated_json)
+        return func.HttpResponse("Processed to sheet successfully", status_code=200)
     except Exception as e:
         logging.error(f"Google Sheets exception found: {e}")
         return func.HttpResponse(str(e), status_code=500)
