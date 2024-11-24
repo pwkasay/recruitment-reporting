@@ -6,12 +6,15 @@ import logging
 import os
 import time
 import uuid
+from collections import Counter
 
-import PyPDF2
-import docx
-import openai
-import requests
 import azure.functions as func
+import olefile
+import openai
+import pdfplumber  # For alternative PDF parsing
+import requests
+from PyPDF2 import PdfReader
+from docx import Document
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from requests import RequestException
@@ -19,7 +22,7 @@ from requests import RequestException
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 SHEET_NAME = "'Role Trends'"
 MICROSOFT_SCOPE = ["https://graph.microsoft.com/.default"]
-TAB_NAME = "Role Trends Raw"  # The name of the specific tab in the sheet
+TAB_NAME = "Role Trends Raw"
 
 
 def get_secrets():
@@ -52,8 +55,8 @@ def get_secrets():
 
 from dotenv import load_dotenv
 
-mode = 'dev'
-if mode == 'dev':
+mode = "dev"
+if mode == "dev":
     load_dotenv()
 
 (
@@ -77,9 +80,26 @@ def authenticate_google_sheets():
 
 
 def write_to_google_sheet(service, json_strings):
-    HEADERS = ["Role", "Education", "Relevant Experience", "Location", "Keywords"]
+    HEADERS = [
+        "Candidate Id",
+        "Company",
+        "Applied Date",
+        "Date Quarter",
+        "Role",
+        "Department",
+        "Education",
+        "Degree",
+        "Schools",
+        "Relevant Experience",
+        "Location",
+        "Country",
+        "Source",
+        "Previous Companies",
+        "Previous Job Titles",
+        "Keywords",
+    ]
     start_row = find_first_empty_row(service)
-    range_name = f"{TAB_NAME}!A{start_row}:E"
+    range_name = f"{TAB_NAME}!A{start_row}:G"
     # Prepare data to write
     rows = []
     for json_str in json_strings:
@@ -87,23 +107,24 @@ def write_to_google_sheet(service, json_strings):
         data = ast.literal_eval(json_str)
         # Create a row by mapping values according to HEADERS
         row = [
-            ", ".join(data.get(key, [])) if key == "Keywords" and isinstance(data.get(key, []), list)
+            ", ".join(data.get(key, []))
+            if isinstance(data.get(key), list)
             else data.get(key, "")
             for key in HEADERS
         ]
         rows.append(row)
     # Prepare the data in the correct format for the Sheets API
-    body = {
-        "values": rows
-    }
+    body = {"values": rows}
     # Use the Sheets API to append the data to the specified tab and range
     service.spreadsheets().values().append(
         spreadsheetId=SPREADSHEET_ID,
         range=range_name,
         valueInputOption="RAW",
-        body=body
+        body=body,
     ).execute()
     print("Data written to Google Sheet successfully!")
+
+
 
 
 def create_openai_client(OPEN_AI_KEY):
@@ -117,7 +138,6 @@ def read_prompt_text(text_path):
             return file.read()
     except FileNotFoundError:
         return "Flag as no prompt"
-
 
 
 def batch_with_chatgpt(openai_client, merged_list):
@@ -194,12 +214,16 @@ def poll_gpt_check(check):
 
 
 def validation_gpt_response(gpt_results):
-    message_json = []
+    success_json = []
+    failed_messages = []
     for result in gpt_results:
-        message = result['response']['body']['choices'][0]['message']['content']
-        parsed_json_data = json.loads(message)
-        message_json.append(str(parsed_json_data))
-    return message_json
+        if result["response"]["body"]["choices"][0]["message"]["content"]:
+            message = result["response"]["body"]["choices"][0]["message"]["content"]
+            parsed_json_data = json.loads(message)
+            success_json.append(str(parsed_json_data))
+        else:
+            failed_messages.append(result)
+    return success_json, failed_messages
 
 
 def find_first_empty_row(service):
@@ -214,12 +238,34 @@ def find_first_empty_row(service):
     return len(values) + 1  # Returns the next empty row (1-based index)
 
 
+def parse_with_chatgpt(openai_client, candidate_data):
+    gpt_prompt_path = "data/gpt_prompt.txt"
+    gpt_prompt = read_prompt_text(gpt_prompt_path)
+    try:
+        messages = [
+            {"role": "system", "content": gpt_prompt},
+            {
+                "role": "user",
+                "content": f"Candidate Data: {candidate_data}",
+            },
+        ]
+        response = openai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages,
+            max_tokens=2500,
+            n=1,
+            stop=None,
+            temperature=0.5,
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        print(e)
+        return None
+
 
 def get_all_jobs():
-    url = 'https://harvest.greenhouse.io/v1/jobs'
-    headers = {
-        "Authorization": f"Basic {GREENHOUSE_API_KEY_ENCODED}"
-    }
+    url = "https://harvest.greenhouse.io/v1/jobs"
+    headers = {"Authorization": f"Basic {GREENHOUSE_API_KEY_ENCODED}"}
     all_jobs = []
     per_page = 100
     page = 1
@@ -227,7 +273,7 @@ def get_all_jobs():
     retry_delay = 1
     while True:
         try:
-            params = {'page': page, 'per_page': per_page}
+            params = {"page": page, "per_page": per_page}
             response = requests.get(url, headers=headers, params=params)
             if response.status_code == 200:
                 jobs = response.json()
@@ -252,12 +298,9 @@ def get_all_jobs():
     return all_jobs if all_jobs else None
 
 
-
 def get_applications(created_after):
-    url = f'https://harvest.greenhouse.io/v1/applications?created_after={created_after}'
-    headers = {
-        "Authorization": f"Basic {GREENHOUSE_API_KEY_ENCODED}"
-    }
+    url = f"https://harvest.greenhouse.io/v1/applications?created_after={created_after}"
+    headers = {"Authorization": f"Basic {GREENHOUSE_API_KEY_ENCODED}"}
     filtered_applications = []
     per_page = 100
     page = 1
@@ -265,7 +308,7 @@ def get_applications(created_after):
     retry_delay = 1
     while True:
         try:
-            params = {'page': page, 'per_page': per_page}
+            params = {"page": page, "per_page": per_page}
             response = requests.get(url, headers=headers, params=params)
             if response.status_code == 200:
                 applications = response.json()
@@ -289,70 +332,218 @@ def get_applications(created_after):
                 print(f"Retrying... {max_retries} retries left")
     return filtered_applications if filtered_applications else None
 
+
 def merge_jobs_and_applications(all_jobs, filtered_applications):
-    lookup_jobs_dict = {job['id']: job for job in all_jobs}
+    lookup_jobs_dict = {job["id"]: job for job in all_jobs}
     merged_list = []
     for application in filtered_applications:
-        job_id = application['jobs'][0]['id']
-        if job_id in lookup_jobs_dict:
-            job_match = {**lookup_jobs_dict[job_id], **application}
-            merged_list.append(job_match)
+        if application["jobs"]:
+            job_id = application["jobs"][0]["id"]
+            if job_id in lookup_jobs_dict:
+                job_match = {**lookup_jobs_dict[job_id], **application}
+                merged_list.append(job_match)
     return merged_list
 
 
-def download_resume_from_applications(filtered_applications):
-    for application in filtered_applications:
-        resume = next((attachment for attachment in application.get('attachments', []) if attachment['type'] == 'resume'), None)
-        if resume:
-            resume_url = resume['url']
-            response = requests.get(resume_url)
-            if response.status_code == 200:
-                resume_content = io.BytesIO(response.content)
-                application['resume_content'] = resume_content
-    return filtered_applications
-
-
-def process():
+def extract_text_from_doc(file_bytes):
     try:
-       pass # master process function to be completed
+        ole = olefile.OleFileIO(io.BytesIO(file_bytes))
+        if ole.exists("WordDocument"):
+            stream = ole.openstream("WordDocument")
+            data = stream.read()
+            # Process the binary data (e.g., extract ASCII text)
+            text = data.decode("utf-8", errors="ignore")
+            return text
+        else:
+            print("No 'WordDocument' stream found in the .doc file.")
+            return None
     except Exception as e:
-        logging.error(f"An error occurred in the main function: {e}")
+        print(f"Error extracting text from .doc file: {e}")
+        return None
+
+
+def download_resume_from_applications(filtered_applications):
+    failed = []
+    for application in filtered_applications:
+        resume = next(
+            (
+                attachment
+                for attachment in application.get("attachments", [])
+                if attachment["type"] == "resume"
+            ),
+            None,
+        )
+        if resume:
+            resume_url = resume["url"]
+            filename = resume["filename"]
+            try:
+                response = requests.get(resume_url, timeout=10)  # Added timeout
+                response.raise_for_status()  # Raise error for HTTP issues
+                file_bytes = response.content
+                extracted_text = ""
+
+                if filename.lower().endswith(".pdf"):
+                    # Option 1: Using PyPDF2
+                    try:
+                        pdf_reader = PdfReader(io.BytesIO(file_bytes))
+                        extracted_text = "\n".join(
+                            page.extract_text() or "" for page in pdf_reader.pages
+                        )
+                    except Exception as e_pypdf2:
+                        print(f"PyPDF2 failed for {filename}: {e_pypdf2}")
+                        # Option 2: Fallback to pdfplumber
+                        try:
+                            with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+                                extracted_text = "\n".join(
+                                    page.extract_text() or "" for page in pdf.pages
+                                )
+                        except Exception as e_pdfplumber:
+                            print(f"pdfplumber failed for {filename}: {e_pdfplumber}")
+                            failed.append(application)
+                            continue
+
+                elif filename.lower().endswith(".docx"):
+                    doc = Document(io.BytesIO(file_bytes))
+                    extracted_text = "\n".join(
+                        paragraph.text for paragraph in doc.paragraphs
+                    )
+
+                elif filename.lower().endswith(".doc"):
+                    # Handle DOC files entirely in memory
+                    try:
+                        doc = extract_text_from_doc(file_bytes)
+                        extracted_text = "\n".join(doc)
+                    except Exception as e:
+                        print(f"Failed to convert and process {filename}: {e}")
+                        failed.append(application)
+                        continue
+                elif filename.lower().endswith(".txt"):
+                    # Handle TXT files
+                    try:
+                        extracted_text = file_bytes.decode("utf-8", errors="ignore")
+                    except Exception as e:
+                        print(f"Failed to process .txt file {filename}: {e}")
+                        failed.append(application)
+                        continue
+
+                else:
+                    print(f"Unsupported file type for {filename}")
+                    failed.append(application)
+                    continue
+
+                # Assign the extracted text to the application
+                application["resume_content"] = extracted_text
+
+            except requests.RequestException as e:
+                print(f"Failed to download {filename}: {e}")
+                failed.append(application)
+            except Exception as e:
+                print(f"Error processing {filename}: {e}")
+                failed.append(application)
+    return filtered_applications, failed
+
+
+def process(created_after_date):
+    try:
+        jobs = get_all_jobs()
+
+        created_after = created_after_date
+        filtered_applications = get_applications(created_after)
+
+        resume_applications, failed = download_resume_from_applications(filtered_applications)
+        jobs_and_applications_list = merge_jobs_and_applications(jobs, resume_applications)
+
+    except Exception as e:
+        logging.error(f"An error occurred in the process function: {e}")
         return func.HttpResponse(f"An error occurred: {e}", status_code=500)
 
+    try:
+        openai_client = create_openai_client(OPEN_AI_KEY)
+        batch = batch_with_chatgpt(openai_client, jobs_and_applications_list)
+    except Exception as e:
+        logging.error(f"GPT exception found: {e}")
+        return func.HttpResponse(str(e), status_code=500)
 
-#Test Steps
-# created_after = '2024-11-12T00:00:00Z'
-# filtered_applications = get_applications(created_after)
-# filtered_applications = filtered_applications[0:100]
-# resume_applications = download_resume_from_applications(filtered_applications)
+    results = None
+    validated_json = None
+    try:
+        while not results:
+            check = check_gpt(openai_client, batch)
+            if check:
+                results = poll_gpt_check(check)
+                validated_json, failed_messages = validation_gpt_response(results)
+
+                print("Results returned")
+            else:
+                time.sleep(2)
+    except Exception as e:
+        logging.error(f"Poll GPT exception found: {e}")
+        return func.HttpResponse(str(e), status_code=500)
+
+    try:
+        service = authenticate_google_sheets()
+        write_to_google_sheet(service, validated_json)
+    except Exception as e:
+        logging.error(f"Google Sheets exception found: {e}")
+        return func.HttpResponse(str(e), status_code=500)
+
+# Test Steps
 # jobs = get_all_jobs()
-# merged_list = merge_jobs_and_applications(jobs, filtered_applications)
+# created_after = "2023-12-31T00:00:00Z"
+# filtered_applications = get_applications(created_after)
+#
+# resume_applications, failed = download_resume_from_applications(filtered_applications)
+# merged_list = merge_jobs_and_applications(jobs, resume_applications)
 # filtered_candidate_list = merged_list
 #
+# fl1 = filtered_candidate_list[0:11000]
+# fl2 = filtered_candidate_list[11000:22000]
+# fl3 = filtered_candidate_list[22000:]
 # openai_client = create_openai_client(OPEN_AI_KEY)
-# batch = batch_with_chatgpt(openai_client, filtered_candidate_list)
-# check = check_gpt(openai_client, batch)
-# gpt_results = poll_gpt_check(check)
+# batch1 = batch_with_chatgpt(openai_client, fl1)
+# batch2 = batch_with_chatgpt(openai_client, fl2)
+# batch3 = batch_with_chatgpt(openai_client, fl3)
 #
-# validated_json = validation_gpt_response(gpt_results)
+# check = check_gpt(openai_client, batch3)
+# gpt_results = poll_gpt_check(check)
+# validated_json, failed_messages = validation_gpt_response(gpt_results)
+#
+# json_data = []
+# json_data.append(validated_json)
+#
+# from itertools import chain
+# flattened = list(chain.from_iterable(json_data))
+# validated_json = flattened
 #
 # service = authenticate_google_sheets()
-# write_to_google_sheet(service, validated_json)
-
-
-# Notes
-# Get applications
-# Get Resumes - parse PDF to text
-# Dictionary based on job title
-# build GPT batch based on that
-# array of returns saved to new dictionary with same keys as results
-# validate (maybe do some counts before gpt)?
-# write to sheets
-# cache results from job id and application id - OR Date on application
-# cronjob, read cache compare to jobs and application fetch
-# if new add to new batch queue
-# might need to get off function apps?
-
-
-
-
+# write_to_google_sheet(service, flattened)
+#
+# counts = count_keywords_from_sheet(service)
+# write_keywords(service, counts)
+#
+# spot_check_candidate(candidate_id)
+#
+# candidate_id = 368916873
+# merged_lookup = {item["candidate_id"]: item for item in merged_list}
+# validated_dicts = [ast.literal_eval(item) for item in validated_json]
+# validated_lookup = {item["Candidate Id"]: item for item in validated_dicts}
+# initial_data = merged_lookup.get(candidate_id)
+# processed_data = validated_lookup.get(candidate_id)
+# print(f"--- Spot Check for Candidate ID: {candidate_id} ---\n")
+# comparisons = [
+#     ("Company", initial_data.get("name"), processed_data.get("Company")),
+#     (
+#         "Applied Date",
+#         initial_data.get("applied_at", "N/A")[:10],
+#         processed_data.get("Applied Date"),
+#     ),
+# ]
+# for label, initial_value, processed_value in comparisons:
+#     print(f"{label}:")
+#     print(f"  Initial Data: {initial_value}")
+#     print(f"  Processed Data: {processed_value}\n")
+# initial_resume = initial_data.get("resume_content", [])
+# processed_companies = processed_data.get("Previous Companies", [])
+# print("Previous Companies:")
+# print(f"  Initial Resume: {initial_resume}")
+# print(f"  Processed Data: {processed_companies}\n")
