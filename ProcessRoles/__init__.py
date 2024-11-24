@@ -1,4 +1,4 @@
-from ProcessRoles.main import *
+from main import *
 import logging
 import azure.functions as func
 
