@@ -495,6 +495,9 @@ def process(created_after_date):
         return func.HttpResponse(str(e), status_code=500)
 
 
+# 
+
+
 # import re
 # from difflib import get_close_matches
 #
