@@ -944,39 +944,39 @@ def process(created_after_date):
 # Failed category
 
 # Test Steps
-jobs = get_all_jobs()
-created_after = "2024-12-15T00:00:00Z"
-filtered_applications = get_applications(created_after)
-
-resume_applications, failed = download_resume_from_applications(filtered_applications)
-merged_list = merge_jobs_and_applications(jobs, resume_applications)
-filtered_candidate_list = merged_list
-
-# Restructure the json to call out company explicitly
-for fc in filtered_candidate_list:
-    offices = fc.get('offices')
-    for office in offices:
-        fc['hiring_company_name'] = office['name']
-
-fl1 = filtered_candidate_list[0:10]
-fl2 = filtered_candidate_list[11000:22000]
-fl3 = filtered_candidate_list[22000:]
-
-fl0 = filtered_candidate_list[0:1]
-
-openai_client = create_openai_client(OPEN_AI_KEY)
-batch = batch_with_chatgpt(openai_client, fl1)
-
-batch2 = batch_with_chatgpt(openai_client, fl2)
-batch3 = batch_with_chatgpt(openai_client, fl3)
-
-
-check = check_gpt(openai_client, batch)
-gpt_results = poll_gpt_check(check)
-validated_json, failed_messages = validation_gpt_response(gpt_results)
-
-service = authenticate_google_sheets()
-write_to_google_sheet(service, validated_json)
+# jobs = get_all_jobs()
+# created_after = "2024-12-15T00:00:00Z"
+# filtered_applications = get_applications(created_after)
+#
+# resume_applications, failed = download_resume_from_applications(filtered_applications)
+# merged_list = merge_jobs_and_applications(jobs, resume_applications)
+# filtered_candidate_list = merged_list
+#
+# # Restructure the json to call out company explicitly
+# for fc in filtered_candidate_list:
+#     offices = fc.get('offices')
+#     for office in offices:
+#         fc['hiring_company_name'] = office['name']
+#
+# fl1 = filtered_candidate_list[0:10]
+# fl2 = filtered_candidate_list[11000:22000]
+# fl3 = filtered_candidate_list[22000:]
+#
+# fl0 = filtered_candidate_list[0:1]
+#
+# openai_client = create_openai_client(OPEN_AI_KEY)
+# batch = batch_with_chatgpt(openai_client, fl1)
+#
+# batch2 = batch_with_chatgpt(openai_client, fl2)
+# batch3 = batch_with_chatgpt(openai_client, fl3)
+#
+#
+# check = check_gpt(openai_client, batch)
+# gpt_results = poll_gpt_check(check)
+# validated_json, failed_messages = validation_gpt_response(gpt_results)
+#
+# service = authenticate_google_sheets()
+# write_to_google_sheet(service, validated_json)
 
 #
 #
@@ -991,23 +991,23 @@ write_to_google_sheet(service, validated_json)
 
 
 # # Single one off
-fl0 = filtered_candidate_list[0:10]
-openai_client = create_openai_client(OPEN_AI_KEY)
-gpt_result = parse_with_chatgpt(openai_client, fl0)
-start_index = gpt_result.find("{")
-end_index = gpt_result.rfind("}") + 1
-json_string = gpt_result[start_index:end_index]
-parsed_json_data = json.loads(json_string)
-gpt_results = [parsed_json_data]
-validated_json, failed_messages = validation_gpt_response(gpt_results)
-
-
-
-
-start_index = gpt_result.find("{")
-end_index = gpt_result.rfind("}") + 1
-json_string = gpt_result[start_index:end_index]
-parsed_json_data = json.loads(json_string)
+# fl0 = filtered_candidate_list[0:10]
+# openai_client = create_openai_client(OPEN_AI_KEY)
+# gpt_result = parse_with_chatgpt(openai_client, fl0)
+# start_index = gpt_result.find("{")
+# end_index = gpt_result.rfind("}") + 1
+# json_string = gpt_result[start_index:end_index]
+# parsed_json_data = json.loads(json_string)
+# gpt_results = [parsed_json_data]
+# validated_json, failed_messages = validation_gpt_response(gpt_results)
+#
+#
+#
+#
+# start_index = gpt_result.find("{")
+# end_index = gpt_result.rfind("}") + 1
+# json_string = gpt_result[start_index:end_index]
+# parsed_json_data = json.loads(json_string)
 
 # degree = parsed_json_data['Degree']
 # standardized_degree_dict = standardize_degree(degree)
