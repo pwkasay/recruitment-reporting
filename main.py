@@ -92,7 +92,8 @@ def write_to_google_sheet(service, json_strings):
         "Degree",
         "Schools",
         "Relevant Experience",
-        "Location",
+        "City",
+        "State/Province",
         "Country",
         "Source",
         "Previous Companies",
@@ -101,7 +102,7 @@ def write_to_google_sheet(service, json_strings):
         "Resume Link"
     ]
     start_row = find_first_empty_row(service)
-    range_name = f"{TAB_NAME}!A{start_row}:R"
+    range_name = f"{TAB_NAME}!A{start_row}:S"
     # Prepare data to write
     rows = []
     for json_str in json_strings:
@@ -478,7 +479,6 @@ def process(created_after_date):
             if check:
                 results = poll_gpt_check(check)
                 validated_json, failed_messages = validation_gpt_response(results)
-
                 print("Results returned")
             else:
                 time.sleep(2)
