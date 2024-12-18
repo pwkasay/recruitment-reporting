@@ -7,6 +7,7 @@ import os
 import time
 import uuid
 import datetime
+import asyncio
 
 import azure.functions as func
 import olefile
@@ -172,7 +173,7 @@ def write_to_google_sheet(service, flattened_rows):
 
 
 
-def create_openai_client(OPEN_AI_KEY):
+async def create_openai_client(OPEN_AI_KEY):
     openai_client = openai.OpenAI(api_key=OPEN_AI_KEY)
     return openai_client
 
@@ -258,7 +259,21 @@ def poll_gpt_check(check):
         return results
 
 
-def validation_gpt_response(gpt_results):
+def validation_gpt_response(results):
+    success_json = []
+    failed_json = []
+    for result in results:
+        start_index = result.find("{")
+        end_index = result.rfind("}") + 1
+        json_string = result[start_index:end_index]
+        if json.loads(json_string):
+            success_json.append(json.loads(json_string))
+        else:
+            failed_json.append(json_string)
+    return success_json, failed_json
+
+
+def validation_batch_response(gpt_results):
     success_json = []
     failed_messages = []
     for result in gpt_results:
@@ -287,32 +302,36 @@ def find_first_empty_row(service):
     return len(values) + 1  # Returns the next empty row (1-based index)
 
 
-def parse_with_chatgpt(openai_client, candidate_data):
+async def parse_with_chatgpt(openai_client, candidate_data):
     gpt_prompt_path = "data/gpt_prompt.txt"
     gpt_prompt = read_prompt_text(gpt_prompt_path)
-    try:
-        messages = [
-            {"role": "system", "content": gpt_prompt},
-            {
-                "role": "user",
-                "content": f"Candidate Data: {candidate_data}",
-            },
-        ]
-        response = openai_client.chat.completions.create(
-            model="gpt-4o",
-            messages=messages,
-            max_tokens=2500,
-            n=1,
-            stop=None,
-            temperature=0.5,
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        print(e)
-        return None
+
+    def _call_openai():
+        try:
+            messages = [
+                {"role": "system", "content": gpt_prompt},
+                {
+                    "role": "user",
+                    "content": f"Candidate Data: {candidate_data}",
+                },
+            ]
+            response = openai_client.chat.completions.create(
+                model="gpt-4o",
+                messages=messages,
+                max_tokens=2500,
+                n=1,
+                stop=None,
+                temperature=0.5,
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            print(e)
+            return None
+
+    return await asyncio.to_thread(_call_openai)
 
 
-def get_all_jobs():
+async def get_all_jobs():
     url = "https://harvest.greenhouse.io/v1/jobs"
     headers = {"Authorization": f"Basic {GREENHOUSE_API_KEY_ENCODED}"}
     all_jobs = []
@@ -347,7 +366,7 @@ def get_all_jobs():
     return all_jobs if all_jobs else None
 
 
-def get_applications(created_after):
+async def get_applications(created_after):
     url = f"https://harvest.greenhouse.io/v1/applications?created_after={created_after}"
     headers = {"Authorization": f"Basic {GREENHOUSE_API_KEY_ENCODED}"}
     filtered_applications = []
@@ -382,7 +401,7 @@ def get_applications(created_after):
     return filtered_applications if filtered_applications else None
 
 
-def merge_jobs_and_applications(all_jobs, filtered_applications):
+async def merge_jobs_and_applications(all_jobs, filtered_applications):
     lookup_jobs_dict = {job["id"]: job for job in all_jobs}
     merged_list = []
     for application in filtered_applications:
@@ -394,24 +413,26 @@ def merge_jobs_and_applications(all_jobs, filtered_applications):
     return merged_list
 
 
-def extract_text_from_doc(file_bytes):
-    try:
-        ole = olefile.OleFileIO(io.BytesIO(file_bytes))
-        if ole.exists("WordDocument"):
-            stream = ole.openstream("WordDocument")
-            data = stream.read()
-            # Process the binary data (e.g., extract ASCII text)
-            text = data.decode("utf-8", errors="ignore")
-            return text
-        else:
-            print("No 'WordDocument' stream found in the .doc file.")
+async def extract_text_from_doc(file_bytes):
+    def _extract():
+        try:
+            ole = olefile.OleFileIO(io.BytesIO(file_bytes))
+            if ole.exists("WordDocument"):
+                stream = ole.openstream("WordDocument")
+                data = stream.read()
+                # Process the binary data (e.g., extract ASCII text)
+                text = data.decode("utf-8", errors="ignore")
+                return text
+            else:
+                print("No 'WordDocument' stream found in the .doc file.")
+                return None
+        except Exception as e:
+            print(f"Error extracting text from .doc file: {e}")
             return None
-    except Exception as e:
-        print(f"Error extracting text from .doc file: {e}")
-        return None
 
+    return await asyncio.to_thread(_extract)
 
-def download_resume_from_applications(filtered_applications):
+async def download_resume_from_applications(filtered_applications):
     failed = []
     for application in filtered_applications:
         resume = next(
@@ -492,41 +513,50 @@ def download_resume_from_applications(filtered_applications):
     return filtered_applications, failed
 
 
-def process(created_after_date):
+async def process(created_after_date):
     try:
-        jobs = get_all_jobs()
-
+        jobs = await get_all_jobs()
         created_after = created_after_date
-        filtered_applications = get_applications(created_after)
-
-        resume_applications, failed = download_resume_from_applications(filtered_applications)
-        jobs_and_applications_list = merge_jobs_and_applications(jobs, resume_applications)
-
+        filtered_applications = await get_applications(created_after)
+        resume_applications, failed = await download_resume_from_applications(filtered_applications)
+        jobs_and_applications_list = await merge_jobs_and_applications(jobs, resume_applications)
     except Exception as e:
         logging.error(f"An error occurred in the process function: {e}")
         return func.HttpResponse(f"An error occurred: {e}", status_code=500)
 
     try:
-        openai_client = create_openai_client(OPEN_AI_KEY)
-        batch = batch_with_chatgpt(openai_client, jobs_and_applications_list)
+        openai_client = await create_openai_client(OPEN_AI_KEY)
+        results = await asyncio.gather(
+            *(parse_with_chatgpt(openai_client, candidate_data) for candidate_data in jobs_and_applications_list)
+        )
+        validated_json, failed_messages = validation_gpt_response(results)
+
     except Exception as e:
-        logging.error(f"GPT exception found: {e}")
+        logging.error(f"An error occurred in the process function: {e}")
         return func.HttpResponse(str(e), status_code=500)
 
-    results = None
-    validated_json = None
-    try:
-        while not results:
-            check = check_gpt(openai_client, batch)
-            if check:
-                results = poll_gpt_check(check)
-                validated_json, failed_messages = validation_gpt_response(results)
-                print("Results returned")
-            else:
-                time.sleep(2)
-    except Exception as e:
-        logging.error(f"Poll GPT exception found: {e}")
-        return func.HttpResponse(str(e), status_code=500)
+
+    # try:
+    #     openai_client = create_openai_client(OPEN_AI_KEY)
+    #     batch = batch_with_chatgpt(openai_client, jobs_and_applications_list)
+    # except Exception as e:
+    #     logging.error(f"GPT exception found: {e}")
+    #     return func.HttpResponse(str(e), status_code=500)
+    #
+    # results = None
+    # validated_json = None
+    # try:
+    #     while not results:
+    #         check = check_gpt(openai_client, batch)
+    #         if check:
+    #             results = poll_gpt_check(check)
+    #             validated_json, failed_messages = validation_gpt_response(results)
+    #             print("Results returned")
+    #         else:
+    #             time.sleep(2)
+    # except Exception as e:
+    #     logging.error(f"Poll GPT exception found: {e}")
+    #     return func.HttpResponse(str(e), status_code=500)
 
     try:
         flattened_rows = normalize_candidates(validated_json)
@@ -592,6 +622,10 @@ def normalize_candidates(candidate_data):
         expanded = expand_candidate(c)
         all_rows.extend(expanded)
     return all_rows
+
+
+# Batch for history
+# Single for daily
 
 
 # Notes
