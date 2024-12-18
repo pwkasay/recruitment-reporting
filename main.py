@@ -432,6 +432,29 @@ async def extract_text_from_doc(file_bytes):
 
     return await asyncio.to_thread(_extract)
 
+
+import subprocess, tempfile, io
+
+async def convert_doc_to_docx(doc_bytes: bytes) -> bytes:
+    # Create a temporary .doc file
+    with tempfile.NamedTemporaryFile(suffix=".doc", delete=False) as doc_file:
+        doc_file_name = doc_file.name
+        doc_file.write(doc_bytes)
+
+    # Define the output path for docx
+    docx_file_name = doc_file_name + ".docx"
+
+    # Run unoconv or libreoffice to convert
+    subprocess.run(["unoconv", "--format", "docx", doc_file_name], check=True)
+
+    # Read the converted .docx file into memory
+    with open(docx_file_name, "rb") as docx_file:
+        docx_bytes = docx_file.read()
+
+    return docx_bytes
+
+unprocessed_docs = []
+
 async def download_resume_from_applications(filtered_applications):
     failed = []
     for application in filtered_applications:
@@ -479,14 +502,28 @@ async def download_resume_from_applications(filtered_applications):
                     )
 
                 elif filename.lower().endswith(".doc"):
+                    unprocessed_docs.append(application)
+                    continue
+                    # try:
+                    #     docx_bytes = await convert_doc_to_docx(file_bytes)
+                    #     doc = Document(io.BytesIO(docx_bytes))
+                    #     extracted_text = "\n".join(
+                    #         paragraph.text or "" for paragraph in doc.paragraphs
+                    #     )
+                    # except Exception as e:
+                    #     print(f"Failed to convert {filename}: {e}")
+                    #     failed.append(application)
+                    #     continue
+
+                        # need to use convert_doc_to_docx instead of:
                     # Handle DOC files entirely in memory
-                    try:
-                        doc = extract_text_from_doc(file_bytes)
-                        extracted_text = "\n".join(doc)
-                    except Exception as e:
-                        print(f"Failed to convert and process {filename}: {e}")
-                        failed.append(application)
-                        continue
+                    # try:
+                    #     doc = extract_text_from_doc(file_bytes)
+                    #     extracted_text = "\n".join(doc)
+                    # except Exception as e:
+                    #     print(f"Failed to convert and process {filename}: {e}")
+                    #     failed.append(application)
+
                 elif filename.lower().endswith(".txt"):
                     # Handle TXT files
                     try:
