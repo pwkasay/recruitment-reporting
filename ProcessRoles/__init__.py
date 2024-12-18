@@ -3,14 +3,14 @@ import logging
 import azure.functions as func
 
 
-def main(req: func.HttpRequest) -> func.HttpResponse:
+async def main(req: func.HttpRequest) -> func.HttpResponse:
     logging.info("Python HTTP trigger function processed a request.")
     print("Main triggered")
 
     created_after_date = (datetime.datetime.now(datetime.UTC) - datetime.timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     try:
-        result = process(created_after_date)
+        result = await process(created_after_date)
         if result.status_code == 200:
             return func.HttpResponse(
                 f"Main 1 - Processed - {result.status_code}", status_code=200
