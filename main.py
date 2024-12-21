@@ -72,7 +72,6 @@ print("Env Setup")
 
 
 def authenticate_google_sheets():
-    # Authenticate using the service account file and the defined scopes
     creds = service_account.Credentials.from_service_account_info(
         GOOGLE_SERVICE_ACCOUNT_JSON_DECODED, scopes=SCOPES
     )
@@ -81,7 +80,6 @@ def authenticate_google_sheets():
 
 
 def write_to_google_sheet(service, flattened_rows):
-    # Adjust HEADERS if you have changed or added fields
     HEADERS = [
         "Candidate Id",
         "Candidate Name",
@@ -102,12 +100,8 @@ def write_to_google_sheet(service, flattened_rows):
         "Previous Job Titles",
         "Resume Link"
     ]
-    # Find the first empty row in the sheet (assumes you have this function implemented)
     start_row = find_first_empty_row(service)
     range_name = f"{TAB_NAME}!A{start_row}:S"  # Adjust range as needed
-    # Prepare rows for the Sheets API
-    # Since each flattened_rows entry is already normalized with single values,
-    # we can directly map them onto HEADERS.
     rows = []
     for row_data in flattened_rows:
         row = [row_data.get(header, "") for header in HEADERS]
@@ -121,56 +115,6 @@ def write_to_google_sheet(service, flattened_rows):
         body=body,
     ).execute()
     print("Data written to Google Sheet successfully!")
-
-
-# def write_to_google_sheet(service, json_strings):
-#     HEADERS = [
-#         "Candidate Id",
-#         "Candidate Name",
-#         "Company",
-#         "Applied Date",
-#         "Date Quarter",
-#         "Role",
-#         "Department",
-#         "Education",
-#         "Degree",
-#         "Schools",
-#         "Relevant Experience",
-#         "City",
-#         "State/Province",
-#         "Country",
-#         "Source",
-#         "Previous Companies",
-#         "Previous Job Titles",
-#         "Resume Link"
-#     ]
-#     start_row = find_first_empty_row(service)
-#     range_name = f"{TAB_NAME}!A{start_row}:S"
-#     # Prepare data to write
-#     rows = []
-#     for json_str in json_strings:
-#         # Parse JSON string into dictionary
-#         data = ast.literal_eval(json_str)
-#         # Create a row by mapping values according to HEADERS
-#         row = [
-#             ", ".join(data.get(key, []))
-#             if isinstance(data.get(key), list)
-#             else data.get(key, "")
-#             for key in HEADERS
-#         ]
-#         rows.append(row)
-#     # Prepare the data in the correct format for the Sheets API
-#     body = {"values": rows}
-#     # Use the Sheets API to append the data to the specified tab and range
-#     service.spreadsheets().values().append(
-#         spreadsheetId=SPREADSHEET_ID,
-#         range=range_name,
-#         valueInputOption="RAW",
-#         body=body,
-#     ).execute()
-#     print("Data written to Google Sheet successfully!")
-
-
 
 
 async def create_openai_client(OPEN_AI_KEY):
@@ -227,7 +171,6 @@ def batch_with_chatgpt(openai_client, merged_list):
 
 
 def check_gpt(openai_client, batch):
-    # check status
     file_response = None
     retrieved_batch = openai_client.batches.retrieve(batch.id)
     if retrieved_batch.status == "completed" and retrieved_batch.output_file_id:
@@ -270,6 +213,10 @@ def validation_gpt_response(results):
             success_json.append(json.loads(json_string))
         else:
             failed_json.append(json_string)
+        for i in success_json:
+            for key, value in i.items():
+                if key == "Role" or key == "Company":
+                    i[key] = value.strip()
     return success_json, failed_json
 
 
@@ -280,10 +227,6 @@ def validation_batch_response(gpt_results):
         if result["response"]["body"]["choices"][0]["message"]["content"]:
             message = result["response"]["body"]["choices"][0]["message"]["content"]
             parsed_json_data = json.loads(message)
-            # degree = parsed_json_data['Degree']
-            # standardized_degree_dict = standardize_degree(degree)
-            # degree_str = standardized_degree_dict["fields"]
-            # parsed_json_data["Degree Category"] = degree_str
             success_json.append(str(parsed_json_data))
         else:
             failed_messages.append(result)
@@ -291,7 +234,6 @@ def validation_batch_response(gpt_results):
 
 
 def find_first_empty_row(service):
-    # Read all data from the sheet to find the first empty row
     result = (
         service.spreadsheets()
         .values()
@@ -305,7 +247,6 @@ def find_first_empty_row(service):
 async def parse_with_chatgpt(openai_client, candidate_data):
     gpt_prompt_path = "data/gpt_prompt.txt"
     gpt_prompt = read_prompt_text(gpt_prompt_path)
-
     def _call_openai():
         try:
             messages = [
@@ -327,7 +268,6 @@ async def parse_with_chatgpt(openai_client, candidate_data):
         except Exception as e:
             print(e)
             return None
-
     return await asyncio.to_thread(_call_openai)
 
 
@@ -403,6 +343,8 @@ async def get_applications(created_after):
 
 async def merge_jobs_and_applications(all_jobs, filtered_applications):
     lookup_jobs_dict = {job["id"]: job for job in all_jobs}
+    for job_id, job_data in lookup_jobs_dict.items():
+        job_data['job_name'] = job_data['name']
     merged_list = []
     for application in filtered_applications:
         if application["jobs"]:
@@ -413,47 +355,6 @@ async def merge_jobs_and_applications(all_jobs, filtered_applications):
     return merged_list
 
 
-async def extract_text_from_doc(file_bytes):
-    def _extract():
-        try:
-            ole = olefile.OleFileIO(io.BytesIO(file_bytes))
-            if ole.exists("WordDocument"):
-                stream = ole.openstream("WordDocument")
-                data = stream.read()
-                # Process the binary data (e.g., extract ASCII text)
-                text = data.decode("utf-8", errors="ignore")
-                return text
-            else:
-                print("No 'WordDocument' stream found in the .doc file.")
-                return None
-        except Exception as e:
-            print(f"Error extracting text from .doc file: {e}")
-            return None
-
-    return await asyncio.to_thread(_extract)
-
-
-import subprocess, tempfile, io
-
-async def convert_doc_to_docx(doc_bytes: bytes) -> bytes:
-    # Create a temporary .doc file
-    with tempfile.NamedTemporaryFile(suffix=".doc", delete=False) as doc_file:
-        doc_file_name = doc_file.name
-        doc_file.write(doc_bytes)
-
-    # Define the output path for docx
-    docx_file_name = doc_file_name + ".docx"
-
-    # Run unoconv or libreoffice to convert
-    subprocess.run(["unoconv", "--format", "docx", doc_file_name], check=True)
-
-    # Read the converted .docx file into memory
-    with open(docx_file_name, "rb") as docx_file:
-        docx_bytes = docx_file.read()
-
-    return docx_bytes
-
-unprocessed_docs = []
 
 async def download_resume_from_applications(filtered_applications):
     failed = []
@@ -538,7 +439,6 @@ async def download_resume_from_applications(filtered_applications):
                     failed.append(application)
                     continue
 
-                # Assign the extracted text to the application
                 application["resume_content"] = extracted_text
 
             except requests.RequestException as e:
@@ -550,6 +450,25 @@ async def download_resume_from_applications(filtered_applications):
     return filtered_applications, failed
 
 
+async def extract_text_from_doc(file_bytes):
+    def _extract():
+        try:
+            ole = olefile.OleFileIO(io.BytesIO(file_bytes))
+            if ole.exists("WordDocument"):
+                stream = ole.openstream("WordDocument")
+                data = stream.read()
+                text = data.decode("utf-8", errors="ignore")
+                return text
+            else:
+                print("No 'WordDocument' stream found in the .doc file.")
+                return None
+        except Exception as e:
+            print(f"Error extracting text from .doc file: {e}")
+            return None
+
+    return await asyncio.to_thread(_extract)
+
+
 async def process(created_after_date):
     try:
         jobs = await get_all_jobs()
@@ -558,7 +477,7 @@ async def process(created_after_date):
         resume_applications, failed = await download_resume_from_applications(filtered_applications)
         jobs_and_applications_list = await merge_jobs_and_applications(jobs, resume_applications)
     except Exception as e:
-        logging.error(f"An error occurred in the process function: {e}")
+        logging.error(f"An error occurred in the process function - greenhouse: {e}")
         return func.HttpResponse(f"An error occurred: {e}", status_code=500)
 
     try:
@@ -566,37 +485,19 @@ async def process(created_after_date):
         results = await asyncio.gather(
             *(parse_with_chatgpt(openai_client, candidate_data) for candidate_data in jobs_and_applications_list)
         )
-        validated_json, failed_messages = validation_gpt_response(results)
-
     except Exception as e:
-        logging.error(f"An error occurred in the process function: {e}")
+        logging.error(f"An error occurred in the process function - gpt: {e}")
+    try:
+        validated_json, failed_messages = validation_gpt_response(results)
+    except Exception as e:
+        logging.error(f"An error occurred in the process function - validation: {e}")
         return func.HttpResponse(str(e), status_code=500)
-
-
-    # try:
-    #     openai_client = create_openai_client(OPEN_AI_KEY)
-    #     batch = batch_with_chatgpt(openai_client, jobs_and_applications_list)
-    # except Exception as e:
-    #     logging.error(f"GPT exception found: {e}")
-    #     return func.HttpResponse(str(e), status_code=500)
-    #
-    # results = None
-    # validated_json = None
-    # try:
-    #     while not results:
-    #         check = check_gpt(openai_client, batch)
-    #         if check:
-    #             results = poll_gpt_check(check)
-    #             validated_json, failed_messages = validation_gpt_response(results)
-    #             print("Results returned")
-    #         else:
-    #             time.sleep(2)
-    # except Exception as e:
-    #     logging.error(f"Poll GPT exception found: {e}")
-    #     return func.HttpResponse(str(e), status_code=500)
-
     try:
         flattened_rows = normalize_candidates(validated_json)
+    except Exception as e:
+        logging.error(f"An error occurred in the process function - normalization: {e}")
+        return func.HttpResponse(str(e), status_code=500)
+    try:
         service = authenticate_google_sheets()
         write_to_google_sheet(service, flattened_rows)
         return func.HttpResponse("Processed to sheet successfully", status_code=200)
@@ -664,19 +565,58 @@ def normalize_candidates(candidate_data):
 # Batch for history
 # Single for daily
 
-
 # Notes
 # @ validator function to run in azure
 # Failed category
 
 # Test Steps
-# jobs = get_all_jobs()
-# created_after = "2024-12-15T00:00:00Z"
-# filtered_applications = get_applications(created_after)
+# jobs = asyncio.run(get_all_jobs())
+# created_after = "2024-12-01T00:00:00Z"
+# filtered_applications = asyncio.run(get_applications(created_after))
 #
-# resume_applications, failed = download_resume_from_applications(filtered_applications)
-# merged_list = merge_jobs_and_applications(jobs, resume_applications)
+# resume_applications, failed = asyncio.run(download_resume_from_applications(filtered_applications))
+# merged_list = asyncio.run(merge_jobs_and_applications(jobs, resume_applications))
 # filtered_candidate_list = merged_list
+#
+#
+# openai_client = asyncio.run(create_openai_client(OPEN_AI_KEY))
+#
+# async def main():
+#     results = await asyncio.gather(
+#         *(parse_with_chatgpt(openai_client, candidate_data) for candidate_data in filtered_candidate_list)
+#     )
+#     # Print results or process them as needed
+#     return results
+#
+# # Run the async function
+# results = asyncio.run(main())
+#
+#
+# pprint(filtered_applications[2340])
+#
+# job = None
+# for j in jobs:
+#     if 'Analytical Lab Technician' in j['name']:
+#         job = j
+#
+# merged_items = []
+# for m in merged_list:
+#     if 'Analytical Lab Technician' in m['name']:
+#         merged_items.append(m)
+#
+#
+#
+# openai_client = asyncio.run(create_openai_client(OPEN_AI_KEY))
+# results = asyncio.gather(
+#     *(parse_with_chatgpt(openai_client, candidate_data) for candidate_data in filtered_candidate_list)
+# )
+#
+# results = []
+# for candidate_data in merged_items:
+#     result = parse_with_chatgpt(openai_client, candidate_data)
+#     results.append(result)
+#
+#
 #
 # # Restructure the json to call out company explicitly
 # for fc in filtered_candidate_list:
@@ -709,6 +649,8 @@ def normalize_candidates(candidate_data):
 #
 # check = check_gpt(openai_client, batch)
 # gpt_results = poll_gpt_check(check)
+#
+#
 # validated_json, failed_messages = validation_gpt_response(gpt_results)
 #
 # flattened_rows = normalize_candidates(validated_json)
