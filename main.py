@@ -355,6 +355,7 @@ async def merge_jobs_and_applications(all_jobs, filtered_applications):
     return merged_list
 
 
+
 async def download_resume_from_applications(filtered_applications):
     failed = []
     for application in filtered_applications:
@@ -402,14 +403,28 @@ async def download_resume_from_applications(filtered_applications):
                     )
 
                 elif filename.lower().endswith(".doc"):
+                    unprocessed_docs.append(application)
+                    continue
+                    # try:
+                    #     docx_bytes = await convert_doc_to_docx(file_bytes)
+                    #     doc = Document(io.BytesIO(docx_bytes))
+                    #     extracted_text = "\n".join(
+                    #         paragraph.text or "" for paragraph in doc.paragraphs
+                    #     )
+                    # except Exception as e:
+                    #     print(f"Failed to convert {filename}: {e}")
+                    #     failed.append(application)
+                    #     continue
+
+                        # need to use convert_doc_to_docx instead of:
                     # Handle DOC files entirely in memory
-                    try:
-                        doc = extract_text_from_doc(file_bytes)
-                        extracted_text = "\n".join(doc)
-                    except Exception as e:
-                        print(f"Failed to convert and process {filename}: {e}")
-                        failed.append(application)
-                        continue
+                    # try:
+                    #     doc = extract_text_from_doc(file_bytes)
+                    #     extracted_text = "\n".join(doc)
+                    # except Exception as e:
+                    #     print(f"Failed to convert and process {filename}: {e}")
+                    #     failed.append(application)
+
                 elif filename.lower().endswith(".txt"):
                     # Handle TXT files
                     try:
