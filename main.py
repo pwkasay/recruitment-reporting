@@ -97,7 +97,7 @@ def write_to_google_sheet(service, flattened_rows):
         "Source",
         "Previous Companies",
         "Previous Job Titles",
-        "Resume Link"
+        "Resume Link",
     ]
     start_row = find_first_empty_row(service)
     range_name = f"{TAB_NAME}!A{start_row}:S"  # Adjust range as needed
@@ -119,6 +119,7 @@ def write_to_google_sheet(service, flattened_rows):
 async def create_openai_client(OPEN_AI_KEY):
     openai_client = openai.OpenAI(api_key=OPEN_AI_KEY)
     return openai_client
+
 
 def create_openai_client_batch(OPEN_AI_KEY):
     openai_client = openai.OpenAI(api_key=OPEN_AI_KEY)
@@ -256,6 +257,7 @@ def find_first_empty_row(service):
 async def parse_with_chatgpt(openai_client, candidate_data):
     gpt_prompt_path = "data/gpt_prompt.txt"
     gpt_prompt = read_prompt_text(gpt_prompt_path)
+
     def _call_openai():
         try:
             messages = [
@@ -277,6 +279,7 @@ async def parse_with_chatgpt(openai_client, candidate_data):
         except Exception as e:
             print(e)
             return None
+
     return await asyncio.to_thread(_call_openai)
 
 
@@ -353,7 +356,7 @@ async def get_applications(created_after, created_before):
 async def merge_jobs_and_applications(all_jobs, filtered_applications):
     lookup_jobs_dict = {job["id"]: job for job in all_jobs}
     for job_id, job_data in lookup_jobs_dict.items():
-        job_data['job_name'] = job_data['name']
+        job_data["job_name"] = job_data["name"]
     merged_list = []
     for application in filtered_applications:
         if application["jobs"]:
@@ -362,7 +365,6 @@ async def merge_jobs_and_applications(all_jobs, filtered_applications):
                 job_match = {**lookup_jobs_dict[job_id], **application}
                 merged_list.append(job_match)
     return merged_list
-
 
 
 async def download_resume_from_applications(filtered_applications):
@@ -451,15 +453,20 @@ async def extract_text_from_doc(file_bytes):
 
     return await asyncio.to_thread(_extract)
 
-#Todo: Keep thinking about the degree overfitting
+
+# Todo: Keep thinking about the degree overfitting
 async def process(created_after_date, created_before_date):
     try:
         jobs = await get_all_jobs()
         created_after = created_after_date
         created_before = created_before_date
         filtered_applications = await get_applications(created_after, created_before)
-        resume_applications, failed = await download_resume_from_applications(filtered_applications)
-        jobs_and_applications_list = await merge_jobs_and_applications(jobs, resume_applications)
+        resume_applications, failed = await download_resume_from_applications(
+            filtered_applications
+        )
+        jobs_and_applications_list = await merge_jobs_and_applications(
+            jobs, resume_applications
+        )
     except Exception as e:
         logging.error(f"An error occurred in the process function - greenhouse: {e}")
         return func.HttpResponse(f"An error occurred: {e}", status_code=500)
@@ -467,7 +474,10 @@ async def process(created_after_date, created_before_date):
     try:
         openai_client = await create_openai_client(OPEN_AI_KEY)
         results = await asyncio.gather(
-            *(parse_with_chatgpt(openai_client, candidate_data) for candidate_data in jobs_and_applications_list)
+            *(
+                parse_with_chatgpt(openai_client, candidate_data)
+                for candidate_data in jobs_and_applications_list
+            )
         )
     except Exception as e:
         logging.error(f"An error occurred in the process function - gpt: {e}")
@@ -496,8 +506,10 @@ def parse_candidate(item):
         return ast.literal_eval(item)
     return item
 
+
 def is_list_field(value):
     return isinstance(value, list)
+
 
 def expand_candidate(candidate):
     """
@@ -532,6 +544,7 @@ def expand_candidate(candidate):
         rows.append(row)
     return rows
 
+
 def normalize_candidates(candidate_data):
     """
     Given a list of candidate records (as dictionaries or dict-string),
@@ -544,9 +557,6 @@ def normalize_candidates(candidate_data):
         expanded = expand_candidate(c)
         all_rows.extend(expanded)
     return all_rows
-
-
-
 
 
 # import subprocess
@@ -683,14 +693,12 @@ def normalize_candidates(candidate_data):
 #     return success_applications, failed_applications
 
 
-
 # import pickle
 # file_path = 'unprocessed_applications.pickle'
 # with open(file_path, 'wb') as file:
 #     pickle.dump(doc_files_process_later, file)
 # with open(file_path, 'rb') as file:
 #     unprocessed_applications = pickle.load(file)
-
 
 
 # Test Steps
@@ -793,6 +801,3 @@ def normalize_candidates(candidate_data):
 #
 # service = authenticate_google_sheets()
 # write_to_google_sheet(service, flattened_rows)
-
-
-
