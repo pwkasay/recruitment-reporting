@@ -701,43 +701,38 @@ def normalize_candidates(candidate_data):
 #     unprocessed_applications = pickle.load(file)
 
 
-<<<<<<< HEAD
-# TODO: Backfill last two days 01/15 - 01/16
-
-=======
->>>>>>> b672b7c2e4db366d8e5decb0094d5243458dfae6
 # Test Steps
-jobs = asyncio.run(get_all_jobs())
-created_after = "2025-01-15T11:59:00Z"
-created_before = "2025-01-19T00:00:00Z"
-filtered_applications = asyncio.run(get_applications(created_after, created_before))
-
-doc_files_process_later = []
-applications_process_now = []
-
-for app in filtered_applications:
-    if app["attachments"]:
-        if app["attachments"][0]["filename"]:
-            if (
-                ".doc" in app["attachments"][0]["filename"]
-                and ".docx" not in app["attachments"][0]["filename"]
-            ):
-                doc_files_process_later.append(app)
-            else:
-                applications_process_now.append(app)
-
-a = []
-for app in filtered_applications:
-    if app["id"] == 362908158:
-        a.append(app)
-
-
-resume_applications, failed = asyncio.run(
-    download_resume_from_applications(applications_process_now)
-)
-
-merged_list = asyncio.run(merge_jobs_and_applications(jobs, resume_applications))
-filtered_candidate_list = merged_list
+# jobs = asyncio.run(get_all_jobs())
+# created_after = "2025-01-15T11:59:00Z"
+# created_before = "2025-01-19T00:00:00Z"
+# filtered_applications = asyncio.run(get_applications(created_after, created_before))
+#
+# doc_files_process_later = []
+# applications_process_now = []
+#
+# for app in filtered_applications:
+#     if app["attachments"]:
+#         if app["attachments"][0]["filename"]:
+#             if (
+#                 ".doc" in app["attachments"][0]["filename"]
+#                 and ".docx" not in app["attachments"][0]["filename"]
+#             ):
+#                 doc_files_process_later.append(app)
+#             else:
+#                 applications_process_now.append(app)
+#
+# a = []
+# for app in filtered_applications:
+#     if app["id"] == 362908158:
+#         a.append(app)
+#
+#
+# resume_applications, failed = asyncio.run(
+#     download_resume_from_applications(applications_process_now)
+# )
+#
+# merged_list = asyncio.run(merge_jobs_and_applications(jobs, resume_applications))
+# filtered_candidate_list = merged_list
 
 
 # openai_client = asyncio.run(create_openai_client(OPEN_AI_KEY))
@@ -750,64 +745,7 @@ filtered_candidate_list = merged_list
 #     offices = fc.get('offices')
 #     for office in offices:
 #         fc['hiring_company_name'] = office['name']
-<<<<<<< HEAD
 
-
-fl1 = filtered_candidate_list[0:11000]
-fl2 = filtered_candidate_list[11000:22000]
-fl3 = filtered_candidate_list[22000:]
-
-fl0 = filtered_candidate_list[0:1]
-
-openai_client = create_openai_client_batch(OPEN_AI_KEY)
-batch = batch_with_chatgpt(openai_client, fl1)
-
-batch2 = batch_with_chatgpt(openai_client, fl2)
-batch3 = batch_with_chatgpt(openai_client, fl3)
-
-results = None
-validated_json = None
-while not results:
-    check = check_gpt(openai_client, batch)
-    if check:
-        results = poll_gpt_check(check)
-        validated_json, failed_messages = validation_gpt_response(results)
-        print("Results returned")
-    else:
-        time.sleep(2)
-
-check = check_gpt(openai_client, batch)
-gpt_results = poll_gpt_check(check)
-
-check2 = check_gpt(openai_client, batch2)
-gpt_results2 = poll_gpt_check(check2)
-check3 = check_gpt(openai_client, batch3)
-gpt_results3 = poll_gpt_check(check3)
-
-validated_json, failed_messages = validation_batch_response(gpt_results)
-
-validated_json2, failed_messages2 = validation_batch_response(gpt_results2)
-validated_json3, failed_messages3 = validation_batch_response(gpt_results3)
-
-flattened_rows = normalize_candidates(validated_json)
-
-flattened_rows2 = normalize_candidates(validated_json2)
-flattened_rows3 = normalize_candidates(validated_json3)
-
-service = authenticate_google_sheets()
-
-write_to_google_sheet(service, flattened_rows)
-
-write_to_google_sheet(service, flattened_rows2)
-write_to_google_sheet(service, flattened_rows3)
-
-
-validated_json, failed_messages = validation_gpt_response(gpt_results)
-flattened_rows = normalize_candidates(validated_json)
-service = authenticate_google_sheets()
-write_to_google_sheet(service, flattened_rows)
-=======
-#
 # fl1 = filtered_candidate_list[0:11000]
 # fl2 = filtered_candidate_list[11000:22000]
 # fl3 = filtered_candidate_list[22000:]
@@ -836,30 +774,28 @@ write_to_google_sheet(service, flattened_rows)
 #
 # check2 = check_gpt(openai_client, batch2)
 # gpt_results2 = poll_gpt_check(check2)
-#
 # check3 = check_gpt(openai_client, batch3)
 # gpt_results3 = poll_gpt_check(check3)
 #
 # validated_json, failed_messages = validation_batch_response(gpt_results)
+#
 # validated_json2, failed_messages2 = validation_batch_response(gpt_results2)
 # validated_json3, failed_messages3 = validation_batch_response(gpt_results3)
 #
 # flattened_rows = normalize_candidates(validated_json)
+#
 # flattened_rows2 = normalize_candidates(validated_json2)
 # flattened_rows3 = normalize_candidates(validated_json3)
-#
 #
 # service = authenticate_google_sheets()
 #
 # write_to_google_sheet(service, flattened_rows)
+#
 # write_to_google_sheet(service, flattened_rows2)
 # write_to_google_sheet(service, flattened_rows3)
 #
 #
 # validated_json, failed_messages = validation_gpt_response(gpt_results)
-#
 # flattened_rows = normalize_candidates(validated_json)
-#
 # service = authenticate_google_sheets()
 # write_to_google_sheet(service, flattened_rows)
->>>>>>> b672b7c2e4db366d8e5decb0094d5243458dfae6
